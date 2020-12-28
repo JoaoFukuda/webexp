@@ -9,7 +9,7 @@ pub struct Request
 	method: String,
 	uri: String,
 	version: String,
-	_headers: Vec<(String, String)>,
+	headers: Vec<(String, String)>,
 }
 
 impl Request
@@ -22,56 +22,52 @@ impl Request
 			method: String::new(),
 			uri: String::new(),
 			version: String::new(),
-			_headers: vec![],
+			headers: vec![],
 		};
 	}
 
 	pub fn create_from_proxy(request_text: String) -> Result<Request, ()>
 	{
 		let request_re = regex::Regex::new(r"^(\S*) ((https?)://)?(\S*?)(:(\d{1,5}))?(/\S*)? (\S*)").unwrap();
-		let mut request = Request
-		{
-			host: String::new(),
-			port: String::from("80"),
-			method: String::new(),
-			uri: String::from("/"),
-			version: String::new(),
-			_headers: vec![],
-		};
+		let mut request = Request::create_empty();
+		request.port = String::from("80");
+		request.uri = String::from("/");
 
-		let var = request_re.captures(&request_text).unwrap();
-		request.host = var.get(4).unwrap().as_str().to_string();
-		request.version = var.get(8).unwrap().as_str().to_string();
-		request.method = var.get(1).unwrap().as_str().to_string();
-		if let Some(uri) = var.get(7)
+		if let Some(var) = request_re.captures(&request_text)
 		{
-			request.uri = uri.as_str().to_string();
+			request.host = var.get(4).unwrap().as_str().to_string();
+			request.version = var.get(8).unwrap().as_str().to_string();
+			request.method = var.get(1).unwrap().as_str().to_string();
+			if let Some(uri) = var.get(7)
+			{
+				request.uri = uri.as_str().to_string();
+			}
+			if let Some(port) = var.get(6)
+			{
+				request.port = port.as_str().to_string();
+			}
+
+			//TODO: Parse headers here
+			request.headers.push((String::from("Host"), request.host.clone()));
+			request.headers.push((String::from("Connection"), String::from("keep-alive")));
 		}
-		if let Some(port) = var.get(6)
+		else
 		{
-			request.port = port.as_str().to_string();
+			println!("[ERR] Could not parse {:?}", request_text);
+			return Err(());
 		}
 
 		return Ok(request);
 	}
 
-	pub fn replay(&self) -> String
-	{
-		let mut end_host = net::TcpStream::connect(format!("{}:{}", self.host, self.port)).unwrap();
-		let request_text = format!("{}", self);
-		println!("Sending request:\n{}\n", request_text);
-		end_host.write(request_text.as_bytes()).unwrap();
-
-		let buf = &mut [0u8; 4096];
-		end_host.read(buf).unwrap();
-		println!("Receiving response:\n{}\n", str::from_utf8(buf).unwrap());
-
-		return String::from(str::from_utf8(buf).unwrap());
-	}
-
 	fn is_connection(&self) -> bool
 	{
 		return self.method.to_uppercase() == "CONNECT";
+	}
+
+	pub fn get_connection(&self) -> net::TcpStream
+	{
+		return net::TcpStream::connect(format!("{}:{}", self.host, self.port)).unwrap();
 	}
 }
 
@@ -79,58 +75,116 @@ impl fmt::Display for Request
 {
 	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result
 	{
-		return write!(f, "{} {} {}\r\nHost: {}\r\nConnection: keep-alive\r\n\r\n", self.method, self.uri, self.version, self.host);
+		write!(f, "{} {} {}\r\n", self.method, self.uri, self.version)?;
+		for (title, value) in &self.headers
+		{
+			write!(f, "{}: {}\r\n", title, value)?;
+		}
+		return write!(f, "\r\n");
 	}
 }
 
-fn handle_tcp_connection(mut client: net::TcpStream, request: Request) -> !
+fn handle_tcp_connection(mut client: net::TcpStream, request: Request)
 {
 	if let Ok(mut server) = net::TcpStream::connect(format!("{}:{}", request.host, request.port))
 	{
 		client.write(String::from("HTTP/1.1 200 OK\r\n\r\n").as_bytes()).unwrap();
 
-		client.set_read_timeout(Some(std::time::Duration::from_millis(200))).unwrap();
-		server.set_read_timeout(Some(std::time::Duration::from_millis(200))).unwrap();
+		let mut client_c = client.try_clone().unwrap();
+		let mut server_c = server.try_clone().unwrap();
 
-		let buf = &mut [0u8; 4096];
-		loop
-		{
-			match server.read(buf)
+		let server_to_client = thread::spawn(move|| {
+			let buf = &mut [0u8; 1024*1024];
+			loop
 			{
-				Ok(data_size) if data_size != 0 => { client.write(buf).unwrap(); },
-				Ok(_) => { break; },
-				_ => {  },
+				match server_c.read(buf)
+				{
+					Ok(data_size) =>
+					{
+						
+						if let Err(_) = client_c.write(&buf[0 .. data_size])
+						{
+							break;
+						}
+						if data_size == 0
+						{
+							break;
+						}
+					},
+					_ =>
+					{
+						break;
+					},
+				}
 			}
+		});
 
-			match client.read(buf)
+		let client_to_server = thread::spawn(move|| {
+			let buf = &mut [0u8; 1024*1024];
+			loop
 			{
-				Ok(data_size) if data_size != 0 => { server.write(buf).unwrap(); },
-				Ok(_) => { break; },
-				_ => {  },
+				match client.read(buf)
+				{
+					Ok(data_size) =>
+					{
+						if let Err(_) = server.write(&buf[0 .. data_size])
+						{
+							break;
+						}
+						if data_size == 0 { break; }
+					},
+					_ =>
+					{
+						break;
+					},
+				}
 			}
-		}
+		});
+
+		client_to_server.join().unwrap();
+		server_to_client.join().unwrap();
 	}
-	std::process::exit(0);
 }
 
 fn handle_client(mut client: net::TcpStream)
 {
-	let buf = &mut [0u8; 4096];
 	let mut request: Request;
+	let buf = &mut [0u8; 1024*1024];
 
 	loop
 	{
-		if let Ok(_) = client.read(buf)
+		if let Ok(data_size) = client.read(buf)
 		{
-			request = Request::create_from_proxy(String::from(str::from_utf8(buf).unwrap())).unwrap();
+			request = Request::create_from_proxy(String::from(str::from_utf8(&buf[0 .. data_size]).unwrap())).unwrap();
+
+			println!("[INF] {} -> {}:{}", request.method, request.host, request.port);
 
 			if request.is_connection()
 			{
 				handle_tcp_connection(client, request);
+				break;
 			}
 			else
 			{
-				client.write(request.replay().as_bytes()).unwrap();
+				let mut server_stream = request.get_connection();
+				let request_text = format!("{}", request);
+
+				server_stream.write(request_text.as_bytes()).unwrap();
+
+				let mut response = String::new();
+				loop {
+					if let Ok(data_size) = server_stream.read(buf)
+					{
+						response = response + str::from_utf8(&buf[0 .. data_size]).unwrap();
+					}
+
+					if true
+					{
+						break;
+					}
+				}
+
+				client.write(response.as_bytes()).unwrap();
 			}
 		}
 	}
@@ -177,6 +231,7 @@ mod tests
 		let request =
 			"GET https://example.com:80/index.php HTTP/1.1\r\n
 			Host: example.com\r\n
+			Connection: keep-alive\r\n
 			\r\n";
 
 		let request = Request::create_from_proxy(request.to_string()).unwrap();
@@ -189,6 +244,7 @@ mod tests
 		let request =
 			"GET http://example.com/ HTTP/1.1\r\n
 			Host: example.com\r\n
+			Connection: keep-alive\r\n
 			\r\n";
 
 		let request = Request::create_from_proxy(request.to_string()).unwrap();
@@ -200,7 +256,6 @@ mod tests
 
 		let request =
 			"CONNECT https://example.com:443/cgi-bin/sumthing/run HTTP/2\r\n
-			Host: example.com\r\n
 			\r\n";
 
 		let request = Request::create_from_proxy(request.to_string()).unwrap();
@@ -213,6 +268,7 @@ mod tests
 		let request =
 			"GET example.com/ HTTP/1.1\r\n
 			Host: example.com\r\n
+			Connection: keep-alive\r\n
 			\r\n";
 
 		let request = Request::create_from_proxy(request.to_string()).unwrap();
@@ -221,6 +277,21 @@ mod tests
 		assert_eq!(request.method, String::from("GET"));
 		assert_eq!(request.uri, String::from("/"));
 		assert_eq!(request.version, String::from("HTTP/1.1"));
+	}
+
+	#[test]
+	fn test_request_to_text()
+	{
+		let request =
+			"GET example.com/ HTTP/1.1\r\n
+			Host: example.com\r\n
+			Connection: keep-alive\r\n
+			\r\n";
+
+		let request = Request::create_from_proxy(request.to_string()).unwrap();
+		assert_eq!(format!("{}", request), String::from(
+			"GET / HTTP/1.1\r\nHost: example.com\r\nConnection: keep-alive\r\n\r\n"
+		));
 	}
 }
 
