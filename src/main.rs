@@ -46,15 +46,34 @@ impl Request
 			{
 				request.port = port.as_str().to_string();
 			}
-
-			//TODO: Parse headers here
-			request.headers.push((String::from("Host"), request.host.clone()));
-			request.headers.push((String::from("Connection"), String::from("keep-alive")));
 		}
 		else
 		{
 			println!("[ERR] Could not parse {:?}", request_text);
 			return Err(());
+		}
+
+		let header_re = regex::Regex::new(r"^\s*(\S+):\s*(.*)$").unwrap();
+		let mut is_header = true;
+		for line in (&request_text).split("\r\n")
+		{
+			if is_header
+			{
+				is_header = false;
+				continue;
+			}
+			if let Some(capture) = header_re.captures(line)
+			{
+				request.headers.push(
+					(
+						capture.get(1).unwrap().as_str().to_string(),
+						capture.get(2).unwrap().as_str().to_string()
+					));
+			}
+			else
+			{
+				break;
+			}
 		}
 
 		return Ok(request);
@@ -156,8 +175,6 @@ fn handle_client(mut client: net::TcpStream)
 		if let Ok(data_size) = client.read(buf)
 		{
 			request = Request::create_from_proxy(String::from(str::from_utf8(&buf[0 .. data_size]).unwrap())).unwrap();
-
-			println!("[INF] {} -> {}:{}", request.method, request.host, request.port);
 
 			if request.is_connection()
 			{
