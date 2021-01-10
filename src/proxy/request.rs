@@ -26,7 +26,7 @@ impl Info
 			}
 		}
 
-		let string_re = regex::Regex::new(r"^(\S+) (?:(https?|tcp|ftp)://)?([\-\.a-zA-Z0-9]+)(?::(\d{1,5}))?((?:/[\-\.a-zA-Z0-9]*)*)? (\S+)").unwrap();
+		let string_re = regex::Regex::new(r"^(\S+) (?:(https?|tcp|ftp|ssh)://)?([\-\.a-zA-Z0-9]+)(?::(\d{1,5}))?((?:/[\-\.a-zA-Z0-9]*)*)? (\S+)").unwrap();
 
 		let mut request_info = Info
 		{
@@ -56,6 +56,28 @@ impl Info
 			{
 				request_info.port = Some(String::from(group.as_str()));
 			}
+			else
+			{
+				match request_info.protocol.clone().unwrap().as_str()
+				{
+					p if p == "https" =>
+					{
+						request_info.port = Some(String::from("443"));
+					},
+					p if p == "ftp" =>
+					{
+						request_info.port = Some(String::from("21"));
+					},
+					p if p == "ssh" =>
+					{
+						request_info.port = Some(String::from("22"));
+					},
+					_ =>
+					{
+						request_info.port = Some(String::from("80"));
+					},
+				}
+			}
 			if let Some(group) = re_search_results.get(5)
 			{
 				request_info.uri = Some(String::from(group.as_str()));
@@ -68,5 +90,25 @@ impl Info
 
 		return request_info;
 	}
+}
+
+pub fn from_bytes(raw_request: &[u8]) -> Vec<u8>
+{
+	let request_info = Info::new(raw_request);
+	let mut formatted_request = Vec::new();
+	let mut first_request_line = String::new();
+
+	first_request_line += &request_info.method.unwrap();
+	first_request_line += " ";
+	first_request_line += &request_info.uri.unwrap();
+	first_request_line += " ";
+	first_request_line += &request_info.version.unwrap();
+
+	let first_line_eol = raw_request.iter().position(|ch| { return *ch == 13u8; }).unwrap();
+
+	formatted_request.extend_from_slice(first_request_line.as_bytes());
+	formatted_request.extend_from_slice(&raw_request[first_line_eol ..]);
+
+	return formatted_request;
 }
 

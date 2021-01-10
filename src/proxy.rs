@@ -3,7 +3,13 @@ use std::io::{ Read, Write };
 
 mod request;
 
-const BUFFER_SIZE: usize = 1024*1024;
+const BUFFER_SIZE: usize = 1024*4;
+
+enum HttpConnection
+{
+	_KeepAlive,
+	Close,
+}
 
 fn connect_streams(mut input: net::TcpStream, mut output: net::TcpStream)
 {
@@ -31,14 +37,29 @@ fn connect_streams(mut input: net::TcpStream, mut output: net::TcpStream)
 	}
 }
 
-fn handle_http_request(mut _client_stream: &net::TcpStream, _raw_request: &[u8])
+fn handle_http_request(mut client_stream: &net::TcpStream, raw_request: &[u8]) -> HttpConnection
 {
-	println!("[INF] HTTP: Sending request");
+	let request_info = request::Info::new(raw_request);
+	println!("[INFO] HTTP connection to {}:{}{}", request_info.host.clone().unwrap(), request_info.port.clone().unwrap(), request_info.uri.clone().unwrap());
+	let buf = &mut [0u8; BUFFER_SIZE];
+
+	let formatted_request = request::from_bytes(raw_request);
+
+	if let Ok(mut server_stream) = net::TcpStream::connect(format!("{}:{}", request_info.host.unwrap(), request_info.port.unwrap()))
+	{
+		server_stream.write(&formatted_request).unwrap();
+		if let Ok(data_size) = server_stream.read(buf)
+		{
+			client_stream.write(&buf[.. data_size]).unwrap();
+		}
+	}
+	 return HttpConnection::Close;
 }
 
 fn handle_tcp_connection(mut client_stream: net::TcpStream, raw_request: &[u8])
 {
 	let request_info = request::Info::new(raw_request);
+	println!("[INFO] TCP connection to {}:{}", request_info.host.clone().unwrap(), request_info.port.clone().unwrap());
 	if let Ok(server_stream) = net::TcpStream::connect(format!("{}:{}", request_info.host.unwrap(), request_info.port.unwrap()))
 	{
 		client_stream.write(String::from("HTTP/1.1 200 OK\r\n\r\n").as_bytes()).unwrap();
@@ -65,18 +86,26 @@ pub fn handle_client(mut client_stream: net::TcpStream)
 {
 	let buf = &mut [0u8; BUFFER_SIZE];
 
-	if let Ok(data_size) = client_stream.read(buf)
+	while let Ok(data_size) = client_stream.read(buf)
 	{
 		if data_size != 0
 		{
 			if str::from_utf8(&buf[0 .. 7]).unwrap() == "CONNECT"
 			{
-				handle_tcp_connection(client_stream, buf);
+				handle_tcp_connection(client_stream, &buf[0 .. data_size]);
+				break;
 			}
 			else
 			{
-				handle_http_request(&client_stream, buf);
+				if let HttpConnection::Close = handle_http_request(&client_stream, &buf[0 .. data_size])
+				{
+					break;
+				}
 			}
+		}
+		else
+		{
+			break;
 		}
 	}
 }
