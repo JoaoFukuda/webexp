@@ -26,7 +26,7 @@ impl Info
 			}
 		}
 
-		let string_re = regex::Regex::new(r"^(\S+) (?:(https?|tcp|ftp|ssh)://)?([\-\.a-zA-Z0-9]+)(?::(\d{1,5}))?((?:/[\-\.a-zA-Z0-9]*)*)? (\S+)").unwrap();
+		let string_re = regex::Regex::new(r"^(\S+) (?:(https?|tcp|ftp|ssh)://)?([\-\.a-zA-Z0-9]+)(?::(\d{1,5}))?((?:/[\-\.a-zA-Z0-9\?\&=]*)*)? (\S+)").unwrap();
 
 		let mut request_info = Info
 		{
