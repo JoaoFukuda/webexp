@@ -71,7 +71,7 @@ int connect_to_server(std::string address, int port)
 	getaddrinfo(address.c_str(), nullptr, nullptr, &dns_results);
 
 	if (dns_results == nullptr) {
-		std::cout << "\033[1;91m[ERROR]\033[m DNS resolve did not return any known address" << std::endl;
+		std::cout << "\e[1;91m[ERROR]\e[m DNS resolve did not return any known address" << std::endl;
 		return -1;
 	}
 
@@ -84,23 +84,23 @@ int connect_to_server(std::string address, int port)
 
 	int server_stream = socket(AF_INET, SOCK_STREAM, 0);
 	if (server_stream == -1) {
-		std::cout << "\033[1;91m[ERROR]\033[m Could not create socket" << std::endl;
+		std::cout << "\e[1;91m[ERROR]\e[m Could not create socket" << std::endl;
 		return -1;
 	}
 
 	int connect_result = connect(server_stream, reinterpret_cast<sockaddr*>(&hint), sizeof(hint));
 
 	if (connect_result == -1) {
-		std::cout << "\033[1;91m[ERROR]\033[m Connection to " << address << ':' << port << " failed. errorno = " << errno << std::endl;
+		std::cout << "\e[1;91m[ERROR]\e[m Connection to " << address << ':' << port << " failed. errorno = " << errno << std::endl;
 		return -1;
 	}
-	std::cout << "\033[1;92m[SUCCESS]\033[m Connection to " << address << ':' << port << " was established" << std::endl;
+	std::cout << "\e[1;92m[SUCCESS]\e[m Connection to " << address << ':' << port << " was established" << std::endl;
 	return server_stream;
 }
 
 void handle_http_request(int client_stream, http::Request request_info)
 {
-	std::cout << "\033[1;94m[INFO]\033[m HTTP connection request to resource " << request_info.host << ':' << request_info.port << request_info.uri << std::endl;
+	std::cout << "\e[1;94m[INFO]\e[m HTTP connection request to resource " << request_info.host << ':' << request_info.port << request_info.uri << std::endl;
 
 	int server_stream = connect_to_server(request_info.host, request_info.port);
 	if (server_stream) {
@@ -125,7 +125,7 @@ void handle_http_request(int client_stream, http::Request request_info)
 
 void handle_tcp_connection(int client_stream, http::Request request_info)
 {
-	std::cout << "\033[1;94m[INFO]\033[m TCP connection request to server " << request_info.host << ':' << request_info.port << std::endl;
+	std::cout << "\e[1;94m[INFO]\e[m TCP connection request to server " << request_info.host << ':' << request_info.port << std::endl;
 
 	int server_stream = connect_to_server(request_info.host, request_info.port);
 	if (server_stream) {

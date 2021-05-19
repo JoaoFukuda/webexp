@@ -1,36 +1,38 @@
 #pragma once
 
 #include "../proxy.hpp"
-#include "../http/request.hpp"
 
-namespace proxy
+namespace webexp
 {
-	struct Socks4Request {
-		uint8_t version;
-		uint8_t command;
-		uint16_t dest_port;
-		uint32_t dest_ip;
-	};
-
-	struct Socks4Response {
-		uint8_t version;
-		uint8_t reply;
-		uint8_t ignore[6];
-	};
-
-	class Socks4Proxy : public Proxy
+	namespace proxy
 	{
-		private:
+		struct Socks4Request {
+			uint8_t version;
+			uint8_t command;
+			uint16_t dest_port;
+			uint32_t dest_ip;
+		};
+
+		struct Socks4Response {
+			uint8_t version;
+			uint8_t reply;
+			uint8_t ignore[6];
+		};
+
+		class Socks4Proxy : public Proxy
+		{
 			int sock;
 
-			void handle_client(int sock) const;
-			void connect_sockets(int in, int out) const;
+			public:
+				Socks4Proxy() = default;
+				Socks4Proxy(int);
 
-		public:
-			void handle_next_connection() const;
+				void handle_next_connection() const noexcept;
 
-			Socks4Proxy() = default;
-			Socks4Proxy(int);
-	};
+			private:
+				void handle_client(int sock) const;
+				void connect_sockets(int in, int out) const;
+		};
+	}
 }
 
